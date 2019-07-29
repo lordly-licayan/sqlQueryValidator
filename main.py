@@ -84,28 +84,31 @@ def getTableInfo(line):
     return tableName, tableAlias
 
 
-def saveFindings(fileName, itemList):
+def saveFindings(fileName, itemList, filesReadList, noOfFilesAffected=0):
     with open(fileName, 'w', encoding='utf-8') as fp:
         print("Writing feedback...")
         feedback= "No errors found!"
         if itemList:
-            print(">>> Failed:")
-            feedback= NEWLINE.join(itemList)
+            print(">>> Failed!")
+            feedback= "No. of files affected: %d\nList of possible error(s):\n %s"  %(noOfFilesAffected,NEWLINE.join(itemList))
         else:
             print(">>> Successful")
+        
         fp.write(feedback)
+        fp.write("\n\nList of files read (%d):\n%s" %(len(filesReadList),NEWLINE.join(filesReadList)))
 
 
 def main(tableList, searchPath):
     print("STARTING...")
     xmlFiles, fileNames= getFiles(searchPath)
-    
-    for file in xmlFiles:
-        findingsList= []
+    filesReadList= []
+    findingsList= []
+    noOfFilesAffected= 0
 
+    for file in xmlFiles:
         with open(file, 'rt', encoding='utf-8') as fp:
-            #print("File: %s" %file)
-                
+            print("File: %s" %file)
+            filesReadList.append(file)
             lineNo= 0
             patternList=[]
             physicalTableList=[]
@@ -151,12 +154,15 @@ def main(tableList, searchPath):
                             if item in tableAliasList:
                                 tableAliasList.remove(item)
             
-            for item in tableAliasList:
-                tableName= item.split(".")[0]
-                feedback= "File: %s\n      Table %s at line no. %d has unused primary key!" %(file, tableName, tableLineNoIndicator[tableName])
-                findingsList.append(feedback)
-            
-    saveFindings(outputFile, findingsList)
+            if tableAliasList:
+                noOfFilesAffected += 1
+                for item in tableAliasList:
+                    tableName= item.split(".")[0]
+                    feedback= "File: %s\n      Table %s at line no. %d has unused primary key!" %(file, tableName, tableLineNoIndicator[tableName])
+                    findingsList.append(feedback)
+        
+    saveFindings(outputFile, findingsList, filesReadList, noOfFilesAffected)
+
 
     print("END...")
 
