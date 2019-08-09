@@ -6,7 +6,9 @@ import re
 
 TABLE_TAG= "_TBL"
 DOT_TAG= "."
+FULL_WIDTH_DOT_TAG= "．"
 SPACE_TAG= " "
+EMPTY_TAG= ""
 AS_TAG= "AS"
 ON_TAG= "ON"
 UNION_TAG= "UNION"
@@ -16,6 +18,7 @@ WHERE_TAG= "WHERE"
 WHERE_END_TAG= "</WHERE>"
 EXISTS_TAG= "EXISTS"
 EQUAL_TAG= "="
+EQUAL_SPACE_TAG= ' = '
 PARAM_TAG= "#{"
 OPEN_PARENTHESIS_TAG= "("
 COMMENT_BEGIN_TAG= "<!--"
@@ -25,8 +28,12 @@ SELECTOR_END_TAG= ">"
 SQL_QUERY_START_TAG= "<SELECT ID"
 SQL_QUERY_END_TAG= "</SELECT>"
 
-
-
+INVALID_SQL= "Invalid SQL statement"
+BROKEN_SQL= "Broken JOIN statement!"
+PARAM_VALUE_USED= "Parameter value %s is used. This should be placed in the WHERE clause."
+LONG_SQL_LINE= "\nLonger JOIN statement encountered!"
+MUST_HAVE_PK= "%s.%s and %s.%s should be used in the JOIN instead of %s and %s."
+NOT_IN_WHERE_CLAUSE= "Expected %s is not present in the WHERE clause."
 
 NEWLINE= "\n"
 TABLE_NAME_INDEX= 2
@@ -41,12 +48,6 @@ SQL_KEYWORDS=["SELECT", "FROM", "LEFT", "RIGHT", "INNER", "OUTER", "JOIN", "GROU
 primaryKeys= ["KAISHA_CD"]
 primaryKeyIndicator= "primaryKeyMap.put"
 physicalTableName= "DatabaseTableInfo"
-
-
-primaryKeys= ["KAISHA_CD"]
-primaryKeyIndicator= "primaryKeyMap.put"
-physicalTableName= "DatabaseTableInfo"
-
 
 entityPath = r"path_of_the_table_entity"
 filesPath= r"path_of_your_files_to_validate"
@@ -63,6 +64,7 @@ def getFiles(path, searchPattern=".xml"):
             if searchPattern in file:
                 files.append(os.path.join(r, file))
                 fileNames.append(file)
+    
     return files, fileNames
 
 
@@ -96,11 +98,11 @@ def getTableInfo(line):
     
     #if DOT_TAG not in line and TABLE_TAG in line:
     if TABLE_TAG in line:
-        newLine= re.sub(r"[^\x00-\x7F]|\W+", SPACE_TAG, line).strip()
+        newLine= re.sub(r"[^\x00-\x7F]|[^\w+|^\.]", SPACE_TAG, line).strip()
         index= re.search(r"\w+_TBL", newLine)
         
         if index:
-            splitResult= newLine[index.start():].split(SPACE_TAG)        
+            splitResult= newLine[index.start():].split(SPACE_TAG)
             tableName= splitResult[0]
             
             if len(splitResult)>= 2:
@@ -119,7 +121,7 @@ def getTableInfo(line):
 
 
 def writeFindings(findingsList, filesReadList, outputFile= "output.xlsx"):
-    df = pd.DataFrame(findingsList, columns = ["Domain", "Screen ID", "Filename", "Line No", "Script Findings", "Remarks"])
+    df = pd.DataFrame(findingsList, columns = ["Domain", "Screen ID", "Filename", "Line No", "Script Findings", "Result", "Remarks"])
     df1 = pd.DataFrame(filesReadList, columns = ["Filename checked:"])
     writer = pd.ExcelWriter(outputFile, engine='xlsxwriter')
     df.to_excel(writer, sheet_name="Findings", index=False, startrow=2, startcol =1)
@@ -154,6 +156,7 @@ def logFindings(findingsList, domainName, screenIdName, actualFileName, lineNo, 
     feedbackList.append(str(lineNo))
     feedbackList.append(remarks)
     feedbackList.append(SPACE_TAG)
+    feedbackList.append(SPACE_TAG)
     
     findingsList.append(feedbackList)
     return feedbackList
@@ -179,11 +182,12 @@ def main(tableList, searchPath):
     filesReadList= []
     findingsList= []
     noOfFilesAffected= 0
-    regexOnLine= re.compile(r"(<!--\s+\w+\s+-->)| +")
     regexOnTag= re.compile(r"\b%s\b" %ON_TAG)
     regexOnNotWhere= re.compile(r"\b" + r"\b|\b".join(SQL_KEYWORDS) + r"\b")
     regexOnSqlJoin= re.compile("|".join(SQL_JOIN_PARTNERS))
-
+    regexCleanLine= re.compile(r"(<!--(.*)-->)|(--(.*))| +")
+    regexFilename= re.compile(r"((\w*)S\d\d)|((\w*)J\d\d)")
+    regexXmlFile= re.compile(r"(\w*).xml")
 
     for file in xmlFiles:
         domainName= None
@@ -193,8 +197,12 @@ def main(tableList, searchPath):
 
         if indexDomain:
             fileInfo= file[indexDomain.start():].split("\\")
-            domainName= fileInfo[DOMAIN_NAME_INDEX]
-            screenIdName= fileInfo[SCREEN_ID_INDEX]
+            domainName= fileInfo[DOMAIN_NAME_INDEX]          
+            screenIdSearch= regexFilename.search(regexXmlFile.search(file).group())
+            if screenIdSearch:
+                screenIdName= screenIdSearch.group()
+            else:
+                screenIdName= fileInfo[SCREEN_ID_INDEX]
             actualFileName= os.path.basename(file)
         else:
             continue
@@ -214,18 +222,14 @@ def main(tableList, searchPath):
             whereLineNo= 0
 
             for line in fp:
-                line= line.upper().strip()
+                line= re.sub(FULL_WIDTH_DOT_TAG, DOT_TAG, line)
+                line= re.sub(EQUAL_TAG, EQUAL_SPACE_TAG, line)
+                line=  regexCleanLine.sub(SPACE_TAG, line).upper().strip()
                 lineNo+= 1
-                remarks= ""
 
-                if (line.startswith(COMMENT_BEGIN_TAG) and line.endswith(COMMENT_END_TAG)) or line.startswith(SQL_QUERY_START_TAG):
+                if not line or line.startswith(SQL_QUERY_START_TAG):
                     continue
                 
-                if EQUAL_TAG in line:
-                    line= re.sub('=', ' = ', line)
-
-                line= regexOnLine.sub(SPACE_TAG, line)
-               
                 if regexOnNotWhere.search(line):
                     isInWhereClause= False
                 elif WHERE_END_TAG == line:
@@ -235,13 +239,13 @@ def main(tableList, searchPath):
                     countWhereClause += 1
                     whereLineNo= lineNo
 
-                newLines= list(filter(None, regexOnSqlJoin.sub("", line).strip().split(JOIN_TAG)))
+                newLines= list(filter(None, regexOnSqlJoin.sub(EMPTY_TAG, line).strip().split(JOIN_TAG)))
                 for item in newLines:
                     collectTableInfo(item, primaryKeys, physicalTableList, tableList, tableAliasList, tableAliasListWithPk, patternList)
-            
                 #print("physicalTableList: ", physicalTableList)
                 #print("patternList: ", patternList)
                 #print("tableAliasListWithPk: ", tableAliasListWithPk)
+                
                 """
                 Check if the line contains ON tag.
                 Scenarios on how 'ON' is used in a line:
@@ -250,6 +254,7 @@ def main(tableList, searchPath):
                     3. last word of the line                ex: INNER JOIN B ON
                     4. the only word of the line            ex: ON
                 """
+                remarks= ""
                 onTagSearch= regexOnTag.search(line)
                 if onTagSearch or tableJoinIsNextLine:
                     if not tableJoinIsNextLine:
@@ -266,24 +271,24 @@ def main(tableList, searchPath):
                     #Parameter value passed must not be used in join.
                     
                     if len(tableJoin) >= 2 and not (EQUAL_TAG == tableJoin[1]):
-                        remarks= "Invalid SQL statement"
+                        remarks= INVALID_SQL
                     elif len(tableJoin) == 1:
                         if OPEN_PARENTHESIS_TAG == tableJoin[0]:
                             tableJoinIsNextLine= False
                             continue
-                        remarks= "Broken JOIN statement!"
+                        remarks= BROKEN_SQL
                     elif len(tableJoin) == 2:
                         tableInBrokenJoin= tableJoin[0].strip()
                         if PARAM_TAG in tableInBrokenJoin:
-                            remarks= "Parameter value %s is used. This should be placed in the WHERE clause." %tableInBrokenJoin
+                            remarks= PARAM_VALUE_USED %tableInBrokenJoin
                         else:
                             tableJoinIsNextLine= False
                             continue
                     else:
                         if PARAM_TAG in tableJoin[0]:
-                            remarks= "Parameter value %s is used. This should be placed in the WHERE clause." %tableJoin[0]
+                            remarks= PARAM_VALUE_USED %tableJoin[0]
                         elif PARAM_TAG in tableJoin[2]:
-                            remarks= "Parameter value %s is used. This should be placed in the WHERE clause." %tableJoin[2]
+                            remarks= PARAM_VALUE_USED %tableJoin[2]
                         else:
                             firstGroup= tableJoin[0].strip()
                             firstTable= firstGroup.split(DOT_TAG)[0]
@@ -293,10 +298,10 @@ def main(tableList, searchPath):
 
                             if firstTable in tableAliasList and secondTable in tableAliasList:
                                 if not (firstGroup in tableAliasListWithPk and secondGroup in tableAliasListWithPk):
-                                    remarks= "%s.%s and %s.%s should be used in the JOIN instead of %s and %s." %(firstTable,primaryKeys[0],secondTable,primaryKeys[0],firstGroup,secondGroup)
+                                    remarks= MUST_HAVE_PK %(firstTable,primaryKeys[0],secondTable,primaryKeys[0],firstGroup,secondGroup)
                         
                         if len(tableJoin) > 3 and not COMMENT_BEGIN_TAG in line:
-                            remarks += "\nLonger JOIN statement encountered!"
+                            remarks += LONG_SQL_LINE
 
                 elif DOT_TAG in line:
                     if tableInBrokenJoin:
@@ -308,12 +313,12 @@ def main(tableList, searchPath):
 
                         if secondTable:
                             if PARAM_TAG in line:
-                                remarks= "Parameter value %s is used. This should be placed in the WHERE clause." %tableJoin[2]
+                                remarks= PARAM_VALUE_USED %tableJoin[2]
                             elif firstTable in tableAliasList and secondTable in tableAliasList:
                                 if not (tableInBrokenJoin in tableAliasListWithPk and secondGroup in tableAliasListWithPk):
-                                    remarks= "%s.%s and %s.%s should be used in the JOIN instead of %s and %s." %(firstTable,primaryKeys[0],secondTable,primaryKeys[0],firstGroup,secondGroup)
+                                    remarks= MUST_HAVE_PK %(firstTable,primaryKeys[0],secondTable,primaryKeys[0],firstGroup,secondGroup)
                         else:
-                            remarks= "Broken JOIN statement detected!"
+                            remarks= BROKEN_SQL
                         
                         tableInBrokenJoin= None
                         continue
@@ -331,28 +336,28 @@ def main(tableList, searchPath):
                             #Assuming that the first table found after FROM has kaishaCd as primary key
                             resultList = re.search(patternList[0], line)
                             if resultList:
+                                #print("Line no. %d: %s" %(lineNo, line))
+                                #print("tableAliasListWithPk: ", tableAliasListWithPk)
                                 tableAliasListWithPk[resultList.group()] += 1
 
                 elif tableInBrokenJoin:
                     if PARAM_TAG in line:
-                        remarks= "Parameter value %s is used. This should be placed in the WHERE clause." %line
+                        remarks= PARAM_VALUE_USED %line
                     else:
-                        remarks= "Broken JOIN statement detected!"
+                        remarks= BROKEN_SQL
                 
                 tableJoinIsNextLine= False
                 tableInBrokenJoin= None
 
                 if remarks:
                     noOfFilesAffected += 1
-                    #print(findingsList)
                     logFindings(findingsList, domainName, screenIdName, actualFileName, lineNo, remarks)
 
                 #New SQL query detected, time to reinitialize variables used.
-                if line.startswith(SQL_QUERY_END_TAG):
-                    #print("New SQL query detected!")
+                elif line.startswith(SQL_QUERY_END_TAG):
                     if countWhereClause > 0 and tableAliasListWithPk:
                         if list(tableAliasListWithPk.values())[0] == 0:
-                            remarks= "Expected %s is not present in the WHERE clause." %list(tableAliasListWithPk.keys())[0]
+                            remarks= NOT_IN_WHERE_CLAUSE %list(tableAliasListWithPk.keys())[0]
                             logFindings(findingsList, domainName, screenIdName, actualFileName, whereLineNo, remarks)
                     
                     patternList=[]
@@ -362,11 +367,10 @@ def main(tableList, searchPath):
                     tableJoinIsNextLine= False
                     tableInBrokenJoin= None
                     isInWhereClause= False
-                    countWhereClause= 0
+                    countWhereClause= 0    
 
     outputFindings(outputFile, findingsList, filesReadList, noOfFilesAffected)
     writeFindings(findingsList, filesReadList, outputFileXls)
-    
 
 #Call the main method to start processing.
 print("STARTING...")
