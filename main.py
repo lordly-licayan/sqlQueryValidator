@@ -2,9 +2,11 @@ import pandas as pd
 import numpy as np
 import os
 import re
+from datetime import datetime 
 
 
 TABLE_TAG= "_TBL"
+TAB_TAG= "\t+"
 DOT_TAG= "."
 FULL_WIDTH_DOT_TAG= "．"
 SPACE_TAG= " "
@@ -21,8 +23,6 @@ EQUAL_TAG= "="
 EQUAL_SPACE_TAG= ' = '
 PARAM_TAG= "#{"
 OPEN_PARENTHESIS_TAG= "("
-COMMENT_BEGIN_TAG= "<!--"
-COMMENT_END_TAG= "-->"
 SELECTOR_BEGIN_TAG= "<"
 SELECTOR_END_TAG= ">"
 SQL_QUERY_START_TAG= "<SELECT ID"
@@ -44,10 +44,12 @@ SCREEN_ID_INDEX= 2
 
 SQL_JOIN_PARTNERS= ["OUTER","INNER","LEFT"] 
 SQL_KEYWORDS=["SELECT", "FROM", "LEFT", "RIGHT", "INNER", "OUTER", "JOIN", "GROUP", "ORDER", "BY", "EXISTS", "UNION"]
+SQL_CONNECTOR_TAGS= ["AND","OR"]
 
 primaryKeys= ["KAISHA_CD"]
 primaryKeyIndicator= "primaryKeyMap.put"
 physicalTableName= "DatabaseTableInfo"
+resultTypeIndicator= "resultType"
 
 entityPath = r"path_of_the_table_entity"
 filesPath= r"path_of_your_files_to_validate"
@@ -185,7 +187,7 @@ def main(tableList, searchPath):
     regexOnTag= re.compile(r"\b%s\b" %ON_TAG)
     regexOnNotWhere= re.compile(r"\b" + r"\b|\b".join(SQL_KEYWORDS) + r"\b")
     regexOnSqlJoin= re.compile("|".join(SQL_JOIN_PARTNERS))
-    regexCleanLine= re.compile(r"(<!--(.*)-->)|(--(.*))| +")
+    regexCleanLine= re.compile(r"(<!--(.*)-->)|(/\*(.*)\*/)|(--(.*))| +|\t+")
     regexFilename= re.compile(r"((\w*)S\d\d)|((\w*)J\d\d)")
     regexXmlFile= re.compile(r"(\w*).xml")
 
@@ -222,11 +224,15 @@ def main(tableList, searchPath):
             whereLineNo= 0
 
             for line in fp:
+                lineNo+= 1
+                if resultTypeIndicator in line:
+                    continue
+
+                line= re.sub(TAB_TAG, EMPTY_TAG, line)
                 line= re.sub(FULL_WIDTH_DOT_TAG, DOT_TAG, line)
                 line= re.sub(EQUAL_TAG, EQUAL_SPACE_TAG, line)
                 line=  regexCleanLine.sub(SPACE_TAG, line).upper().strip()
-                lineNo+= 1
-
+                
                 if not line or line.startswith(SQL_QUERY_START_TAG):
                     continue
                 
@@ -300,7 +306,7 @@ def main(tableList, searchPath):
                                 if not (firstGroup in tableAliasListWithPk and secondGroup in tableAliasListWithPk):
                                     remarks= MUST_HAVE_PK %(firstTable,primaryKeys[0],secondTable,primaryKeys[0],firstGroup,secondGroup)
                         
-                        if len(tableJoin) > 3 and not COMMENT_BEGIN_TAG in line:
+                        if len(tableJoin) >= 4 and not tableJoin[3] in SQL_CONNECTOR_TAGS:
                             remarks += LONG_SQL_LINE
 
                 elif DOT_TAG in line:
@@ -373,11 +379,15 @@ def main(tableList, searchPath):
     writeFindings(findingsList, filesReadList, outputFileXls)
 
 #Call the main method to start processing.
-print("STARTING...")
+start = datetime.now() 
+
+print("STARTING... %s" %start)
 tableDict= getTablesWithPrimaryKey(pathEntity, primaryKeys).keys() 
 tableList= list(tableDict)
 print("No. of tables: ", len(tableList))
 #print("Tables: ", tableList)
 
 main(tableList, pathWeb)
-print("END...")
+finish = datetime.now()
+print("END... %s" %finish)
+print('Scan Duration: %s'%(finish-start)) 
