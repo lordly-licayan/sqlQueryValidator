@@ -33,8 +33,8 @@ def main(argv):
         directory= os.path.join(pathSource, dir)
         outputFileLog= join(outputDirectory, '%s_%s.txt' %(outputFileName, dir))
         outputFileXls= join(outputDirectory, '%s_%s.xlsx' %(outputFileName, dir))
-        print("directory: %s; outputFileLog: %s; outputFileXls: %s" %(directory, outputFileLog, outputFileXls))
-        #doValidate(tableList, directory, primaryKeys, outputFileLog, outputFileXls)
+        #print("directory: %s; outputFileLog: %s; outputFileXls: %s" %(directory, outputFileLog, outputFileXls))
+        doValidate(tableList, directory, primaryKeys, outputFileLog, outputFileXls)
 
     finish = datetime.now()
     print("ENDED on %s" %finish)
