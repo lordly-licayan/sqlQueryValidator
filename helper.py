@@ -1,7 +1,13 @@
 import os
 import re
-
+from os.path import exists
 from constants import *
+
+
+def makeDirectory(folderPath):   
+    if not exists(folderPath):
+        os.mkdir(folderPath)
+
 
 def getFiles(path, searchPattern=".xml"):
     files = []
