@@ -16,7 +16,7 @@ pathEntity = config['PATHS']['pathEntity']
 pathSource=  config['PATHS']['pathSource']
 primaryKeys= config['OTHERS']['primaryKeys'].split(",")
 outputDirectory= config['OTHERS']['outputDirectory']
-outputFileName= config['OTHERS']['defaultFileName']
+outputFileName= config['OTHERS']['outputFileName']
 
 def main(argv):
     start = datetime.now() 
